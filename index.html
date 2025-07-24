@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>天気ポータル（Open-Meteo版）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="manifest" href="manifest.json" />
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('service-worker.js')
+      .then(() => console.log('✅ Service Worker registered'))
+      .catch(err => console.error('❌ Service Worker registration failed:', err));
+  }
+</script>
+
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #eef;
+      margin: 0;
+      padding: 1em;
+      text-align: center;
+    }
+
+    h1 { font-size: 1.8em; margin-bottom: 1em; }
+
+    .tabs {
+      display: flex;
+      justify-content: space-around;
+      border-bottom: 2px solid #ccc;
+      margin-bottom: 1em;
+    }
+
+    .tabs button {
+      flex: 1;
+      background: none;
+      border: none;
+      padding: 1em;
+      font-size: 1em;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tabs button.active-tab {
+      border-bottom: 3px solid #0078D7;
+      font-weight: bold;
+      color: #0078D7;
+    }
+
+    .tab-content {
+      display: none;
+      background: #fff;
+      padding: 1em;
+      border-radius: 8px;
+      max-width: 900px;
+      margin: auto;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .card {
+      display: inline-block;
+      background: #f8f8f8;
+      margin: 0.5em;
+      padding: 1em;
+      border-radius: 6px;
+      width: 120px;
+      vertical-align: top;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .weather-icon { font-size: 2em; margin-bottom: 0.5em; }
+
+    .scroll-x {
+      overflow-x: auto;
+      white-space: nowrap;
+      padding: 1em 0;
+    }
+
+    .hour-card {
+      display: inline-block;
+      background: #fff;
+      margin-right: 0.5em;
+      padding: 0.5em;
+      border-radius: 6px;
+      width: 100px;
+      box-shadow: 0 2px 3px rgba(0,0,0,0.1);
+    }
+
+    canvas { max-width: 100%; margin-top: 1em; }
+
+    @media screen and (max-width: 600px) {
+      .card, .hour-card { width: 100px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>🌤️ 天気ポータル（Open-Meteo）</h1>
+
+  <div class="tabs">
+    <button id="tab-now" onclick="showTab('now')">現在</button>
+    <button id="tab-week" onclick="showTab('week')">週間</button>
+    <button id="tab-hour" onclick="showTab('hour')">時間別</button>
+    <button id="tab-chart" onclick="showTab('chart')">グラフ</button>
+  </div>
+
+  <div id="now" class="tab-content active">
+    <h2>現在の天気</h2>
+    <div id="currentCard" class="card"></div>
+  </div>
+
+  <div id="week" class="tab-content">
+    <h2>📅 週間予報</h2>
+    <div id="weeklyCards"></div>
+  </div>
+
+  <div id="hour" class="tab-content">
+    <h2>🕒 時間別予報</h2>
+    <div class="scroll-x" id="hourlyCards"></div>
+  </div>
+
+  <div id="chart" class="tab-content">
+    <h2>📈 気温グラフ</h2>
+    <canvas id="tempChart"></canvas>
+  </div>
+
+  <script>
+    function showTab(id) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      document.querySelectorAll('.tabs button').forEach(btn => btn.classList.remove('active-tab'));
+      document.getElementById('tab-' + id).classList.add('active-tab');
+    }
+
+    const icons = code => {
+      if (code < 2) return '☀️';
+      if (code < 3) return '🌤️';
+      if (code < 45) return '☁️';
+      if (code < 51) return '🌫️';
+      if (code < 65) return '🌧️';
+      if (code < 80) return '🌦️';
+      if (code < 85) return '❄️';
+      if (code < 95) return '⛈️';
+      return '🌩️';
+    };
+
+    function fetchWeather(lat, lon) {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode&hourly=temperature_2m,weathercode&timezone=Asia%2FTokyo`;
+
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          // 現在
+          document.getElementById('currentCard').innerHTML = `
+            <div class="weather-icon">${icons(data.current_weather.weathercode)}</div>
+            <strong>気温: ${data.current_weather.temperature}℃</strong><br>
+            降水量: ${data.daily.precipitation_sum[0]} mm<br>
+            緯度: ${lat.toFixed(2)}<br>経度: ${lon.toFixed(2)}
+          `;
+
+          // 週間予報
+          let weekHTML = '';
+          for (let i = 1; i <= 5; i++) {
+            weekHTML += `<div class="card">
+              <div class="weather-icon">${icons(data.daily.weathercode[i])}</div>
+              <strong>${data.daily.time[i]}</strong><br>
+              ${data.daily.temperature_2m_min[i]}℃〜${data.daily.temperature_2m_max[i]}℃<br>
+              ☔ ${data.daily.precipitation_sum[i]} mm
+            </div>`;
+          }
+          document.getElementById('weeklyCards').innerHTML = weekHTML;
+
+          // 時間別
+          let hourHTML = '';
+          for (let i = 0; i < 24; i++) {
+            const time = new Date(data.hourly.time[i]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            hourHTML += `<div class="hour-card">
+              ${time}<br>
+              <div class="weather-icon">${icons(data.hourly.weathercode[i])}</div>
+              ${data.hourly.temperature_2m[i]}℃
+            </div>`;
+          }
+          document.getElementById('hourlyCards').innerHTML = hourHTML;
+
+          // グラフ
+          const ctx = document.getElementById('tempChart').getContext('2d');
+          new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: data.hourly.time.slice(0, 12).map(t => new Date(t).getHours() + '時'),
+              datasets: [{
+                label: '気温(℃)',
+                data: data.hourly.temperature_2m.slice(0, 12),
+                borderColor: '#0078D7',
+                backgroundColor: 'rgba(0,120,215,0.2)',
+                fill: true,
+                tension: 0.2
+              }]
+            },
+            options: {
+              responsive: true,
+              plugins: { legend: { display: false } },
+              scales: {
+                y: {
+                  beginAtZero: false,
+                  ticks: { callback: value => value + '℃' }
+                }
+              }
+            }
+          });
+        })
+        .catch(err => {
+          console.error('天気データ取得失敗:', err);
+        });
+    }
+
+    // 現在地取得して天気表示
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(pos => {
+        fetchWeather(pos.coords.latitude, pos.coords.longitude);
+      }, () => {
+        fetchWeather(35.6828, 139.759); // 東京 fallback
+      });
+    } else {
+      fetchWeather(35.6828, 139.759);
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('tab-now').classList.add('active-tab');
+    });
+  </script>
+</body>
+</html>
